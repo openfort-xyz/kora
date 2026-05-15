@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, FeePayerPolicy},
+    config::{Config, FeePayerPolicy, ProgramsConfig},
     error::KoraError,
     fee::fee::{FeeConfigUtil, TotalFeeCalculation},
     oracle::PriceSource,
@@ -25,6 +25,7 @@ pub struct TransactionValidator {
     fee_payer_pubkey: Pubkey,
     max_allowed_lamports: u64,
     allowed_programs: Vec<Pubkey>,
+    allow_all_programs: bool,
     require_one_of_programs: Vec<Pubkey>,
     max_signatures: u64,
     allowed_tokens: Vec<Pubkey>,
@@ -38,18 +39,22 @@ impl TransactionValidator {
     pub fn new(config: &Config, fee_payer_pubkey: Pubkey) -> Result<Self, KoraError> {
         let config = &config.validation;
 
-        // Convert string program IDs to Pubkeys
-        let allowed_programs = config
-            .allowed_programs
-            .iter()
-            .map(|addr| {
-                Pubkey::from_str(addr).map_err(|e| {
-                    KoraError::InternalServerError(format!(
-                        "Invalid program address in config: {e}"
-                    ))
-                })
-            })
-            .collect::<Result<Vec<Pubkey>, KoraError>>()?;
+        let (allow_all_programs, allowed_programs) = match &config.allowed_programs {
+            ProgramsConfig::All => (true, Vec::new()),
+            ProgramsConfig::Allowlist(programs) => (
+                false,
+                programs
+                    .iter()
+                    .map(|addr| {
+                        Pubkey::from_str(addr).map_err(|e| {
+                            KoraError::InternalServerError(format!(
+                                "Invalid program address in config: {e}"
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<Pubkey>, KoraError>>()?,
+            ),
+        };
 
         let require_one_of_programs = config
             .require_one_of_programs
@@ -67,6 +72,7 @@ impl TransactionValidator {
             fee_payer_pubkey,
             max_allowed_lamports: config.max_allowed_lamports,
             allowed_programs,
+            allow_all_programs,
             require_one_of_programs,
             max_signatures: config.max_signatures,
             _price_source: config.price_source.clone(),
@@ -225,6 +231,9 @@ impl TransactionValidator {
         &self,
         transaction_resolved: &VersionedTransactionResolved,
     ) -> Result<(), KoraError> {
+        if self.allow_all_programs {
+            return Ok(());
+        }
         for instruction in &transaction_resolved.all_instructions {
             if !self.allowed_programs.contains(&instruction.program_id) {
                 return Err(KoraError::InvalidTransaction(format!(
@@ -293,7 +302,7 @@ impl TransactionValidator {
         validate_system!(self, system_instructions, SystemCreateAccount,
         ParsedSystemInstructionData::SystemCreateAccount { payer, owner, .. } => payer,
         self.fee_payer_policy.system.allow_create_account, "System Create Account", {
-            if !self.allowed_programs.contains(owner) {
+            if !self.allow_all_programs && !self.allowed_programs.contains(owner) {
                 return Err(KoraError::InvalidTransaction(format!(
                     "CreateAccount owner program {} is not in the allowed programs list",
                     owner
@@ -330,43 +339,43 @@ impl TransactionValidator {
             let spl_instructions = transaction_resolved.get_or_parse_spl_instructions()?;
 
             validate_spl!(self, spl_instructions, SplTokenTransfer,
-                ParsedSPLInstructionData::SplTokenTransfer { owner, is_2022, .. } => { owner, is_2022 },
+                ParsedSPLInstructionData::SplTokenTransfer { owner, multisig_signers, is_2022, .. } => { owner, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_transfer,
                 self.fee_payer_policy.token_2022.allow_transfer,
                 "SPL Token Transfer", "Token2022 Token Transfer");
 
             validate_spl!(self, spl_instructions, SplTokenApprove,
-                ParsedSPLInstructionData::SplTokenApprove { owner, is_2022, .. } => { owner, is_2022 },
+                ParsedSPLInstructionData::SplTokenApprove { owner, multisig_signers, is_2022, .. } => { owner, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_approve,
                 self.fee_payer_policy.token_2022.allow_approve,
                 "SPL Token Approve", "Token2022 Token Approve");
 
             validate_spl!(self, spl_instructions, SplTokenBurn,
-                ParsedSPLInstructionData::SplTokenBurn { owner, is_2022 } => { owner, is_2022 },
+                ParsedSPLInstructionData::SplTokenBurn { owner, multisig_signers, is_2022 } => { owner, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_burn,
                 self.fee_payer_policy.token_2022.allow_burn,
                 "SPL Token Burn", "Token2022 Token Burn");
 
             validate_spl!(self, spl_instructions, SplTokenCloseAccount,
-                ParsedSPLInstructionData::SplTokenCloseAccount { owner, is_2022 } => { owner, is_2022 },
+                ParsedSPLInstructionData::SplTokenCloseAccount { owner, multisig_signers, is_2022 } => { owner, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_close_account,
                 self.fee_payer_policy.token_2022.allow_close_account,
                 "SPL Token Close Account", "Token2022 Token Close Account");
 
             validate_spl!(self, spl_instructions, SplTokenRevoke,
-                ParsedSPLInstructionData::SplTokenRevoke { owner, is_2022 } => { owner, is_2022 },
+                ParsedSPLInstructionData::SplTokenRevoke { owner, multisig_signers, is_2022 } => { owner, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_revoke,
                 self.fee_payer_policy.token_2022.allow_revoke,
                 "SPL Token Revoke", "Token2022 Token Revoke");
 
             validate_spl!(self, spl_instructions, SplTokenSetAuthority,
-                ParsedSPLInstructionData::SplTokenSetAuthority { authority, is_2022, .. } => { authority, is_2022 },
+                ParsedSPLInstructionData::SplTokenSetAuthority { authority, multisig_signers, is_2022, .. } => { authority, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_set_authority,
                 self.fee_payer_policy.token_2022.allow_set_authority,
                 "SPL Token SetAuthority", "Token2022 Token SetAuthority");
 
             validate_spl!(self, spl_instructions, SplTokenMintTo,
-                ParsedSPLInstructionData::SplTokenMintTo { mint_authority, is_2022 } => { mint_authority, is_2022 },
+                ParsedSPLInstructionData::SplTokenMintTo { mint_authority, multisig_signers, is_2022 } => { mint_authority, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_mint_to,
                 self.fee_payer_policy.token_2022.allow_mint_to,
                 "SPL Token MintTo", "Token2022 Token MintTo");
@@ -390,13 +399,13 @@ impl TransactionValidator {
                 "SPL Token InitializeMultisig", "Token2022 Token InitializeMultisig");
 
             validate_spl!(self, spl_instructions, SplTokenFreezeAccount,
-                ParsedSPLInstructionData::SplTokenFreezeAccount { freeze_authority, is_2022 } => { freeze_authority, is_2022 },
+                ParsedSPLInstructionData::SplTokenFreezeAccount { freeze_authority, multisig_signers, is_2022 } => { freeze_authority, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_freeze_account,
                 self.fee_payer_policy.token_2022.allow_freeze_account,
                 "SPL Token FreezeAccount", "Token2022 Token FreezeAccount");
 
             validate_spl!(self, spl_instructions, SplTokenThawAccount,
-                ParsedSPLInstructionData::SplTokenThawAccount { freeze_authority, is_2022 } => { freeze_authority, is_2022 },
+                ParsedSPLInstructionData::SplTokenThawAccount { freeze_authority, multisig_signers, is_2022 } => { freeze_authority, multisig_signers, is_2022 },
                 self.fee_payer_policy.spl_token.allow_thaw_account,
                 self.fee_payer_policy.token_2022.allow_thaw_account,
                 "SPL Token ThawAccount", "Token2022 Token ThawAccount");
@@ -631,10 +640,13 @@ impl TransactionValidator {
             ParsedSPLInstructionData::SplTokenReallocate {
                 payer,
                 owner,
+                multisig_signers,
                 is_2022,
                 ..
             } => *is_2022
-                && (*payer == self.fee_payer_pubkey || *owner == self.fee_payer_pubkey) ,
+                && (*payer == self.fee_payer_pubkey
+                    || *owner == self.fee_payer_pubkey
+                    || multisig_signers.contains(&self.fee_payer_pubkey)) ,
             "Token2022 Reallocate is not allowed when involving fee payer");
 
         validate_token2022!(self, spl_instructions, SplTokenPause,
@@ -1125,6 +1137,29 @@ mod tests {
             .validate_transaction(config, &mut transaction, &rpc_client)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_validate_programs_wildcard_sentinel() {
+        let fee_payer = Pubkey::new_unique();
+        let mut config = ConfigMockBuilder::new().with_price_source(PriceSource::Mock).build();
+        config.validation.allowed_programs = ProgramsConfig::All;
+        setup_both_configs(config);
+        let rpc_client = RpcMockBuilder::new().build();
+
+        let config = get_config().unwrap();
+        let validator = TransactionValidator::new(config, fee_payer).unwrap();
+
+        let arbitrary_program = Pubkey::new_unique();
+        let instruction = Instruction::new_with_bincode(arbitrary_program, &[0u8], vec![]);
+        let message = VersionedMessage::Legacy(Message::new(&[instruction], Some(&fee_payer)));
+        let mut transaction =
+            TransactionUtil::new_unsigned_versioned_transaction_resolved(message).unwrap();
+        assert!(validator
+            .validate_transaction(get_config().unwrap(), &mut transaction, &rpc_client)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -5016,7 +5051,8 @@ mod tests {
         let metadata_address = Pubkey::new_unique();
         let rpc_client = RpcMockBuilder::new().build();
         let mut config = ConfigMockBuilder::new().build();
-        config.validation.allowed_programs.push(spl_token_2022_interface::id().to_string());
+        config.validation.allowed_programs =
+            ProgramsConfig::Allowlist(vec![spl_token_2022_interface::id().to_string()]);
         config.validation.token_2022.blocked_mint_extensions = vec!["metadata_pointer".to_string()];
         config.validation.token_2022.initialize().unwrap();
         let _config_guard = setup_config_mock(config.clone());
