@@ -3,15 +3,17 @@ use crate::{
     config::{
         AuthConfig, BundleConfig, CacheConfig, Config, EnabledMethods,
         FeePayerBalanceMetricsConfig, FeePayerPolicy, KoraConfig, LighthouseConfig, MetricsConfig,
-        NonceInstructionPolicy, PluginsConfig, SplTokenConfig, SplTokenInstructionPolicy,
-        SystemInstructionPolicy, Token2022Config, Token2022InstructionPolicy, ValidationConfig,
+        NonceInstructionPolicy, PluginsConfig, ProgramsConfig, SplTokenConfig,
+        SplTokenInstructionPolicy, SystemInstructionPolicy, Token2022Config,
+        Token2022InstructionPolicy, ValidationConfig,
     },
     constant::DEFAULT_MAX_REQUEST_BODY_SIZE,
     fee::price::PriceConfig,
     oracle::PriceSource,
     signer::config::{
-        MemorySignerConfig, PrivySignerConfig, SelectionStrategy, SignerConfig, SignerPoolConfig,
-        SignerPoolSettings, SignerTypeConfig, TurnkeySignerConfig, VaultSignerConfig,
+        MemorySignerConfig, OpenfortSignerConfig, PrivySignerConfig, SelectionStrategy,
+        SignerConfig, SignerPoolConfig, SignerPoolSettings, SignerTypeConfig, TurnkeySignerConfig,
+        VaultSignerConfig,
     },
     usage_limit::{UsageLimitConfig, UsageLimitRuleConfig},
 };
@@ -77,11 +79,11 @@ impl ConfigMockBuilder {
                 validation: ValidationConfig {
                     max_allowed_lamports: 1_000_000_000,
                     max_signatures: 10,
-                    allowed_programs: vec![
+                    allowed_programs: ProgramsConfig::Allowlist(vec![
                         "11111111111111111111111111111111".parse().unwrap(), // System Program
                         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".parse().unwrap(), // Token Program
                         "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL".parse().unwrap(), // ATA Program
-                    ],
+                    ]),
                     allowed_tokens: vec![
                         "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU".parse().unwrap(), // USDC devnet
                     ],
@@ -96,6 +98,8 @@ impl ConfigMockBuilder {
                     allow_durable_transactions: false,
                     max_price_staleness_slots: 0,
                     require_one_of_programs: vec![],
+                    cross_cluster_check: false,
+                    cross_cluster_endpoints: vec![],
                 },
                 kora: KoraConfig {
                     rate_limit: 100,
@@ -108,6 +112,7 @@ impl ConfigMockBuilder {
                         enabled: true,
                         default_ttl: 300,
                         account_ttl: 60,
+                        price_ttl: 30,
                     },
                     usage_limit: UsageLimitConfig::default(),
                     plugins: PluginsConfig::default(),
@@ -168,7 +173,7 @@ impl ConfigMockBuilder {
     }
 
     pub fn with_allowed_programs(mut self, programs: Vec<String>) -> Self {
-        self.config.validation.allowed_programs = programs;
+        self.config.validation.allowed_programs = ProgramsConfig::Allowlist(programs);
         self
     }
 
@@ -297,7 +302,7 @@ impl ValidationConfigBuilder {
             config: ValidationConfig {
                 max_allowed_lamports: 1_000_000_000,
                 max_signatures: 10,
-                allowed_programs: vec![],
+                allowed_programs: ProgramsConfig::Allowlist(vec![]),
                 allowed_tokens: vec![],
                 allowed_spl_paid_tokens: SplTokenConfig::Allowlist(vec![]),
                 disallowed_accounts: vec![],
@@ -308,6 +313,8 @@ impl ValidationConfigBuilder {
                 allow_durable_transactions: false,
                 max_price_staleness_slots: 0,
                 require_one_of_programs: vec![],
+                cross_cluster_check: false,
+                cross_cluster_endpoints: vec![],
             },
         }
     }
@@ -327,7 +334,7 @@ impl ValidationConfigBuilder {
     }
 
     pub fn with_allowed_programs(mut self, programs: Vec<String>) -> Self {
-        self.config.allowed_programs = programs;
+        self.config.allowed_programs = ProgramsConfig::Allowlist(programs);
         self
     }
 
@@ -376,6 +383,7 @@ impl KoraConfigBuilder {
                     enabled: true,
                     default_ttl: 300,
                     account_ttl: 60,
+                    price_ttl: 30,
                 },
                 usage_limit: UsageLimitConfig::default(),
                 plugins: PluginsConfig::default(),
@@ -436,6 +444,7 @@ impl CacheConfigBuilder {
                 enabled: true,
                 default_ttl: 300,
                 account_ttl: 60,
+                price_ttl: 30,
             },
         }
     }
@@ -464,8 +473,21 @@ impl CacheConfigBuilder {
         self
     }
 
+    pub fn with_price_ttl(mut self, ttl: u64) -> Self {
+        self.config.price_ttl = ttl;
+        self
+    }
+
     pub fn disabled() -> Self {
-        Self { config: CacheConfig { url: None, enabled: false, default_ttl: 0, account_ttl: 0 } }
+        Self {
+            config: CacheConfig {
+                url: None,
+                enabled: false,
+                default_ttl: 0,
+                account_ttl: 0,
+                price_ttl: 0,
+            },
+        }
     }
 }
 
@@ -856,6 +878,30 @@ impl SignerPoolConfigBuilder {
             weight,
             config: SignerTypeConfig::Privy {
                 config: PrivySignerConfig { app_id_env, app_secret_env, wallet_id_env },
+            },
+        };
+        self.config.signers.push(signer);
+        self
+    }
+
+    pub fn with_openfort_signer(
+        mut self,
+        name: String,
+        secret_key_env: String,
+        account_id_env: String,
+        wallet_secret_env: String,
+        weight: Option<u32>,
+    ) -> Self {
+        let signer = SignerConfig {
+            name,
+            weight,
+            config: SignerTypeConfig::Openfort {
+                config: OpenfortSignerConfig {
+                    secret_key_env,
+                    account_id_env,
+                    wallet_secret_env,
+                    api_base_url: None,
+                },
             },
         };
         self.config.signers.push(signer);

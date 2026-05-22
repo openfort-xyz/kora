@@ -138,32 +138,38 @@ pub enum ParsedSPLInstructionData {
     // Includes burn and burn with seed
     SplTokenBurn {
         owner: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // Includes close account
     SplTokenCloseAccount {
         owner: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // Includes approve and approve with seed
     SplTokenApprove {
         owner: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // Revoke
     SplTokenRevoke {
         owner: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // SetAuthority
     SplTokenSetAuthority {
         authority: Pubkey,
         new_authority: Option<Pubkey>,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // MintTo and MintToChecked
     SplTokenMintTo {
         mint_authority: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // InitializeMint and InitializeMint2
@@ -185,11 +191,13 @@ pub enum ParsedSPLInstructionData {
     // FreezeAccount
     SplTokenFreezeAccount {
         freeze_authority: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // ThawAccount
     SplTokenThawAccount {
         freeze_authority: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     // Token2022 Reallocate
@@ -197,6 +205,7 @@ pub enum ParsedSPLInstructionData {
         account: Pubkey,
         payer: Pubkey,
         owner: Pubkey,
+        multisig_signers: Vec<Pubkey>,
         is_2022: bool,
     },
     SplTokenInitializePausable {
@@ -489,6 +498,7 @@ pub const PARSED_DATA_FIELD_FREEZE_ACCOUNT: &str = "freezeAccount";
 pub const PARSED_DATA_FIELD_THAW_ACCOUNT: &str = "thawAccount";
 pub const PARSED_DATA_FIELD_GET_ACCOUNT_DATA_SIZE: &str = "getAccountDataSize";
 pub const PARSED_DATA_FIELD_INITIALIZE_IMMUTABLE_OWNER: &str = "initializeImmutableOwner";
+pub const PARSED_DATA_FIELD_SYNC_NATIVE: &str = "syncNative";
 pub const PARSED_DATA_FIELD_EXTENSION_TYPES: &str = "extensionTypes";
 
 // Additional field names for new instructions
@@ -1822,6 +1832,22 @@ impl IxUtils {
                     data,
                 })
             }
+            PARSED_DATA_FIELD_SYNC_NATIVE => {
+                let account = Self::get_field_as_pubkey(info, PARSED_DATA_FIELD_ACCOUNT)?;
+                let account_idx = Self::get_account_index(account_keys_hashmap, &account)?;
+
+                let data = if is_spl_token_program {
+                    spl_token_interface::instruction::TokenInstruction::SyncNative.pack()
+                } else {
+                    spl_token_2022_interface::instruction::TokenInstruction::SyncNative.pack()
+                };
+
+                Ok(CompiledInstruction {
+                    program_id_index,
+                    accounts: vec![account_idx],
+                    data,
+                })
+            }
             _ => {
                 Err(KoraError::InvalidTransaction(format!(
                     "Unrecognized SPL Token instruction type '{}' in CPI — cannot validate fee payer policy",
@@ -2573,6 +2599,7 @@ impl IxUtils {
                                 ParsedSPLInstructionType::SplTokenBurn,
                                 ParsedSPLInstructionData::SplTokenBurn {
                                     owner,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 },
                             );
@@ -2590,6 +2617,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_burn::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2603,6 +2631,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_close_account::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2619,6 +2648,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_approve::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2630,6 +2660,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenApprove {
                                     owner: instruction.accounts[instruction_indexes::spl_token_approve_checked::OWNER_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 4),
                                     is_2022: false,
                                 });
                         }
@@ -2646,6 +2677,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_revoke::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 2),
                                     is_2022: false,
                                 });
                         }
@@ -2661,6 +2693,7 @@ impl IxUtils {
                                 .push(ParsedSPLInstructionData::SplTokenSetAuthority {
                                     authority: instruction.accounts[instruction_indexes::spl_token_set_authority::CURRENT_AUTHORITY_INDEX].pubkey,
                                     new_authority: new_authority.into(),
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 2),
                                     is_2022: false,
                                 });
                         }
@@ -2675,6 +2708,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenMintTo {
                                     mint_authority: instruction.accounts[instruction_indexes::spl_token_mint_to::MINT_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2686,6 +2720,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenMintTo {
                                     mint_authority: instruction.accounts[instruction_indexes::spl_token_mint_to_checked::MINT_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2792,6 +2827,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenFreezeAccount {
                                     freeze_authority: instruction.accounts[instruction_indexes::spl_token_freeze_account::FREEZE_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2803,6 +2839,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenThawAccount {
                                     freeze_authority: instruction.accounts[instruction_indexes::spl_token_thaw_account::FREEZE_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: false,
                                 });
                         }
@@ -2923,6 +2960,7 @@ impl IxUtils {
                                 ParsedSPLInstructionType::SplTokenBurn,
                                 ParsedSPLInstructionData::SplTokenBurn {
                                     owner,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 },
                             );
@@ -2940,6 +2978,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_burn::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -2953,6 +2992,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_close_account::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -2969,6 +3009,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_approve::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -2982,6 +3023,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenApprove {
                                     owner: instruction.accounts[instruction_indexes::spl_token_approve_checked::OWNER_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 4),
                                     is_2022: true,
                                 });
                         }
@@ -2998,6 +3040,7 @@ impl IxUtils {
                                     owner: instruction.accounts
                                         [instruction_indexes::spl_token_revoke::OWNER_INDEX]
                                         .pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 2),
                                     is_2022: true,
                                 });
                         }
@@ -3013,6 +3056,7 @@ impl IxUtils {
                                 .push(ParsedSPLInstructionData::SplTokenSetAuthority {
                                     authority: instruction.accounts[instruction_indexes::spl_token_set_authority::CURRENT_AUTHORITY_INDEX].pubkey,
                                     new_authority: new_authority.into(),
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 2),
                                     is_2022: true,
                                 });
                         }
@@ -3027,6 +3071,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenMintTo {
                                     mint_authority: instruction.accounts[instruction_indexes::spl_token_mint_to::MINT_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -3038,6 +3083,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenMintTo {
                                     mint_authority: instruction.accounts[instruction_indexes::spl_token_mint_to_checked::MINT_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -3150,6 +3196,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenFreezeAccount {
                                     freeze_authority: instruction.accounts[instruction_indexes::spl_token_freeze_account::FREEZE_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -3161,6 +3208,7 @@ impl IxUtils {
                                 .or_default()
                                 .push(ParsedSPLInstructionData::SplTokenThawAccount {
                                     freeze_authority: instruction.accounts[instruction_indexes::spl_token_thaw_account::FREEZE_AUTHORITY_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 3),
                                     is_2022: true,
                                 });
                         }
@@ -3176,6 +3224,7 @@ impl IxUtils {
                                     account: instruction.accounts[instruction_indexes::spl_token_reallocate::ACCOUNT_INDEX].pubkey,
                                     payer: instruction.accounts[instruction_indexes::spl_token_reallocate::PAYER_INDEX].pubkey,
                                     owner: instruction.accounts[instruction_indexes::spl_token_reallocate::OWNER_INDEX].pubkey,
+                                    multisig_signers: Self::extract_multisig_signers(instruction, 4),
                                     is_2022: true,
                                 });
                         }
@@ -3692,6 +3741,28 @@ mod tests {
             authority,
             &[],
         )?;
+
+        let message = Message::new(&[solana_instruction], None);
+        let compiled_instruction = &message.instructions[0];
+
+        let account_keys_for_parsing = AccountKeys::new(&message.account_keys, None);
+
+        let parsed = parse_instruction::parse(
+            &spl_token_interface::ID,
+            compiled_instruction,
+            &account_keys_for_parsing,
+            None,
+        )?;
+
+        Ok(parsed)
+    }
+
+    fn create_parsed_spl_token_sync_native(
+        account: &Pubkey,
+    ) -> Result<solana_transaction_status_client_types::ParsedInstruction, Box<dyn std::error::Error>>
+    {
+        let solana_instruction =
+            spl_token_interface::instruction::sync_native(&spl_token_interface::ID, account)?;
 
         let message = Message::new(&[solana_instruction], None);
         let compiled_instruction = &message.instructions[0];
@@ -5421,6 +5492,31 @@ mod tests {
         let compiled = result.unwrap();
         assert_eq!(compiled.program_id_index, 0);
         assert_eq!(compiled.accounts, vec![1, 2, 3]); // account, destination, authority indices
+        assert_eq!(compiled.data, instruction.data);
+    }
+
+    #[test]
+    fn test_reconstruct_spl_token_sync_native_instruction() {
+        let account = Pubkey::new_unique();
+        let token_program_id = spl_token_interface::ID;
+        let account_keys = vec![token_program_id, account];
+
+        let instruction =
+            spl_token_interface::instruction::sync_native(&spl_token_interface::ID, &account)
+                .expect("Failed to create sync_native instruction");
+
+        let solana_parsed = create_parsed_spl_token_sync_native(&account)
+            .expect("Failed to create parsed instruction");
+
+        let result = IxUtils::reconstruct_spl_token_instruction(
+            &solana_parsed,
+            &IxUtils::build_account_keys_hashmap(&account_keys),
+        );
+
+        assert!(result.is_ok(), "syncNative CPI should reconstruct: {:?}", result.err());
+        let compiled = result.unwrap();
+        assert_eq!(compiled.program_id_index, 0);
+        assert_eq!(compiled.accounts, vec![1]);
         assert_eq!(compiled.data, instruction.data);
     }
 
