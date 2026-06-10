@@ -115,6 +115,72 @@ impl SplTokenConfig {
             SplTokenConfig::Allowlist(v) => v.as_slice(),
         }
     }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.into_iter()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ProgramsConfig {
+    All,
+    #[serde(untagged)]
+    Allowlist(Vec<String>),
+}
+
+impl utoipa::PartialSchema for ProgramsConfig {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        string_or_string_array_schema()
+    }
+}
+
+impl utoipa::ToSchema for ProgramsConfig {}
+
+/// OpenAPI schema for enums that serialize as either the literal string `"All"` or a JSON array
+/// of strings. The auto-derived schema treats the untagged `Allowlist` variant as an object
+/// wrapper, which does not match the actual JSON form.
+fn string_or_string_array_schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+    use utoipa::openapi::{schema::Type, ArrayBuilder, ObjectBuilder, OneOfBuilder};
+    OneOfBuilder::new()
+        .item(ObjectBuilder::new().schema_type(Type::String).enum_values(Some(vec!["All"])).build())
+        .item(
+            ArrayBuilder::new()
+                .items(ObjectBuilder::new().schema_type(Type::String).build())
+                .build(),
+        )
+        .into()
+}
+
+impl<'a> IntoIterator for &'a ProgramsConfig {
+    type Item = &'a String;
+    type IntoIter = std::slice::Iter<'a, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            ProgramsConfig::All => [].iter(),
+            ProgramsConfig::Allowlist(programs) => programs.iter(),
+        }
+    }
+}
+
+impl ProgramsConfig {
+    pub fn is_all(&self) -> bool {
+        matches!(self, ProgramsConfig::All)
+    }
+
+    pub fn contains(&self, program: &str) -> bool {
+        match self {
+            ProgramsConfig::All => true,
+            ProgramsConfig::Allowlist(programs) => programs.iter().any(|p| p == program),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[String] {
+        match self {
+            ProgramsConfig::All => &[],
+            ProgramsConfig::Allowlist(v) => v.as_slice(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -211,6 +277,22 @@ pub struct ValidationConfig {
     /// Default: empty (no restriction).
     #[serde(default)]
     pub require_one_of_programs: Vec<String>,
+    /// When true, checks configured mint addresses against other known clusters
+    /// and warns if a mint is found on a different cluster than the one connected.
+    /// Disabled by default: the check contacts public RPC endpoints, which may be undesirable
+    /// for operators who want to keep their mint addresses private.
+    #[serde(default)]
+    pub cross_cluster_check: bool,
+    #[serde(default = "default_cross_cluster_endpoints")]
+    pub cross_cluster_endpoints: Vec<String>,
+}
+
+fn default_cross_cluster_endpoints() -> Vec<String> {
+    vec![
+        "https://api.mainnet-beta.solana.com".to_string(),
+        "https://api.devnet.solana.com".to_string(),
+        "https://api.testnet.solana.com".to_string(),
+    ]
 }
 
 impl ValidationConfig {
@@ -630,12 +712,8 @@ pub struct CacheConfig {
     /// TTL for account data cache in seconds
     pub account_ttl: u64,
     /// TTL for token price data cache in seconds
-    #[serde(default = "default_price_ttl")]
+    #[serde(default)]
     pub price_ttl: u64,
-}
-
-fn default_price_ttl() -> u64 {
-    DEFAULT_CACHE_PRICE_TTL
 }
 
 impl Default for CacheConfig {
@@ -766,6 +844,17 @@ impl Default for AuthConfig {
             max_timestamp_age: DEFAULT_MAX_TIMESTAMP_AGE,
             protected_methods: DEFAULT_PROTECTED_METHODS.iter().map(|s| s.to_string()).collect(),
         }
+    }
+}
+
+impl AuthConfig {
+    pub(crate) fn normalize_optional_secret(value: Option<String>) -> Option<String> {
+        value.filter(|value| !value.is_empty())
+    }
+
+    pub(crate) fn has_auth(&self) -> bool {
+        self.api_key.as_deref().is_some_and(|key| !key.is_empty())
+            || self.hmac_secret.as_deref().is_some_and(|key| !key.is_empty())
     }
 }
 
@@ -1192,7 +1281,7 @@ allow_create = true
         assert!(!config.kora.cache.enabled);
         assert_eq!(config.kora.cache.default_ttl, 300);
         assert_eq!(config.kora.cache.account_ttl, 60);
-        assert_eq!(config.kora.cache.price_ttl, 30);
+        assert_eq!(config.kora.cache.price_ttl, 0);
     }
 
     #[test]
