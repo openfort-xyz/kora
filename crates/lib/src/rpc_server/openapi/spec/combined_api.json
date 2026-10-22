@@ -1323,9 +1323,14 @@
                   "description": "Response payload containing the signed transaction.",
                   "required": [
                     "signed_transaction",
-                    "signer_pubkey"
+                    "signer_pubkey",
+                    "lighthouse_assertion_added"
                   ],
                   "properties": {
+                    "lighthouse_assertion_added": {
+                      "type": "boolean",
+                      "description": "Whether a Lighthouse fee payer assertion was appended to the message before signing.\nReports only the assertion. It is not a statement that the message is otherwise\nunchanged: a request with an empty signature array also gets a fresh blockhash."
+                    },
                     "signed_transaction": {
                       "type": "string",
                       "description": "Base64-encoded transaction signed by the Kora fee payer"
@@ -2129,9 +2134,14 @@
         "description": "Response payload containing the signed transaction.",
         "required": [
           "signed_transaction",
-          "signer_pubkey"
+          "signer_pubkey",
+          "lighthouse_assertion_added"
         ],
         "properties": {
+          "lighthouse_assertion_added": {
+            "type": "boolean",
+            "description": "Whether a Lighthouse fee payer assertion was appended to the message before signing.\nReports only the assertion. It is not a statement that the message is otherwise\nunchanged: a request with an empty signature array also gets a fresh blockhash."
+          },
           "signed_transaction": {
             "type": "string",
             "description": "Base64-encoded transaction signed by the Kora fee payer"
@@ -2205,7 +2215,7 @@
           },
           "allow_initialize_mint": {
             "type": "boolean",
-            "description": "Allow fee payer to be the mint authority in SPL Token InitializeMint/InitializeMint2 instructions"
+            "description": "Allow fee payer to be the mint or freeze authority in SPL Token InitializeMint/InitializeMint2 instructions"
           },
           "allow_initialize_multisig": {
             "type": "boolean",
@@ -2221,7 +2231,7 @@
           },
           "allow_set_authority": {
             "type": "boolean",
-            "description": "Allow fee payer to be the current authority in SPL Token SetAuthority instructions"
+            "description": "Allow fee payer to be the current or the new authority in SPL Token SetAuthority instructions"
           },
           "allow_thaw_account": {
             "type": "boolean",
@@ -2357,7 +2367,7 @@
           },
           "allow_initialize_mint": {
             "type": "boolean",
-            "description": "Allow fee payer to be the mint authority in Token2022 InitializeMint/InitializeMint2 instructions",
+            "description": "Allow fee payer to be the mint or freeze authority in Token2022 InitializeMint/InitializeMint2 instructions",
             "default": false
           },
           "allow_initialize_multisig": {
@@ -2377,7 +2387,7 @@
           },
           "allow_set_authority": {
             "type": "boolean",
-            "description": "Allow fee payer to be the current authority in Token2022 SetAuthority instructions",
+            "description": "Allow fee payer to be the current or the new authority in Token2022 SetAuthority instructions",
             "default": false
           },
           "allow_thaw_account": {
@@ -2536,6 +2546,25 @@
             "items": {
               "type": "string"
             }
+          },
+          "allowed_transaction_versions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "legacy"
+                  ]
+                },
+                {
+                  "type": "integer",
+                  "maximum": 255,
+                  "minimum": 0
+                }
+              ]
+            },
+            "description": "Transaction message versions accepted: any of \"legacy\", 0, 1.\nDefault: all versions."
           },
           "cross_cluster_check": {
             "type": "boolean",

@@ -139,9 +139,7 @@ impl BundleProcessor {
                 transfer_hook_validation_flow,
             )?;
             if let Some(context) = plugin_context {
-                plugin_runner
-                    .run(&mut resolved_tx, config, rpc_client, &fee_payer, context)
-                    .await?;
+                plugin_runner.run(&resolved_tx, config, rpc_client, &fee_payer, context).await?;
             }
             all_bundle_instructions.extend(resolved_tx.all_instructions.clone());
             resolved_transactions.push(resolved_tx);
@@ -232,28 +230,14 @@ impl BundleProcessor {
     }
 
     pub async fn sign_all(
-        self,
-        signer: &Arc<solana_keychain::Signer>,
-        fee_payer: &Pubkey,
-        rpc_client: &RpcClient,
-        config: &Config,
-        will_send: bool,
-    ) -> Result<Vec<VersionedTransactionResolved>, KoraError> {
-        self.sign_all_internal(signer, fee_payer, rpc_client, config, will_send, true).await
-    }
-
-    async fn sign_all_internal(
         mut self,
         signer: &Arc<solana_keychain::Signer>,
         fee_payer: &Pubkey,
         rpc_client: &RpcClient,
         config: &Config,
         will_send: bool,
-        validate_payment: bool,
     ) -> Result<Vec<VersionedTransactionResolved>, KoraError> {
-        if validate_payment {
-            self.validate_payment()?;
-        }
+        self.validate_payment()?;
 
         let mut blockhash = None;
         let tx_count = self.resolved_transactions.len();

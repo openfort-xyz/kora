@@ -130,6 +130,12 @@ export interface SignTransactionResponse {
     signed_transaction: string;
     /** Public key of the signer used to sign the transaction */
     signer_pubkey: string;
+    /**
+     * Whether a Lighthouse fee payer assertion was appended before signing. Reports only
+     * the assertion; the message may differ from the request for other reasons (a request
+     * with an empty signature array gets a fresh blockhash). Sign the returned transaction.
+     */
+    lighthouse_assertion_added: boolean;
 }
 
 /**
@@ -262,6 +268,8 @@ export interface ValidationConfig {
     allowed_spl_paid_tokens: string[];
     /** List of allowed token mint addresses for fee payment */
     allowed_tokens: string[];
+    /** Transaction message versions the node accepts */
+    allowed_transaction_versions?: ('legacy' | 0 | 1)[];
     /** List of blocked account addresses */
     disallowed_accounts: string[];
     /** Policy controlling fee payer permissions */
@@ -580,6 +588,8 @@ export interface KitSignTransactionResponse {
     signed_transaction: Base64EncodedWireTransaction;
     /** Public key of the signer used to sign the transaction */
     signer_pubkey: Address;
+    /** Whether a Lighthouse fee payer assertion was appended before signing */
+    lighthouse_assertion_added: boolean;
 }
 
 /** Plugin response for signAndSendTransaction with Kit types */
@@ -656,6 +666,8 @@ export interface KitValidationConfig {
     allowed_spl_paid_tokens: Address[];
     /** List of allowed token mint addresses for fee payment */
     allowed_tokens: Address[];
+    /** Transaction message versions the node accepts */
+    allowed_transaction_versions?: ('legacy' | 0 | 1)[];
     /** List of blocked account addresses */
     disallowed_accounts: Address[];
     /** Policy controlling fee payer permissions */

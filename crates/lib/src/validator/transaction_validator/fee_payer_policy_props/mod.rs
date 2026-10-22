@@ -3,10 +3,12 @@ mod bpf_loader_upgradeable;
 mod loader_v4;
 mod spl_token;
 mod system;
+mod token_2022;
 
 use super::*;
 use crate::{
-    config::FeePayerPolicy, tests::config_mock::ConfigMockBuilder, transaction::TransactionUtil,
+    config::FeePayerPolicy, oracle::PriceSource, tests::config_mock::ConfigMockBuilder,
+    transaction::TransactionUtil,
 };
 use proptest::{prelude::*, test_runner::TestCaseError};
 use solana_message::{Message, VersionedMessage};

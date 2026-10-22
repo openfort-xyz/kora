@@ -1,6 +1,7 @@
 use http::HeaderValue;
 use serde::{Deserialize, Deserializer, Serialize};
 use solana_sdk::pubkey::Pubkey;
+use solana_transaction::versioned::TransactionVersion;
 use spl_token_2022_interface::extension::ExtensionType;
 use std::{env, fs, path::Path, str::FromStr};
 use toml;
@@ -258,6 +259,29 @@ impl ProgramsConfig {
     }
 }
 
+fn transaction_versions_schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+    use utoipa::openapi::{schema::Type, ArrayBuilder, ObjectBuilder, OneOfBuilder};
+    ArrayBuilder::new()
+        .items(
+            OneOfBuilder::new()
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::String)
+                        .enum_values(Some(vec!["legacy"])),
+                )
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::Integer)
+                        .minimum(Some(0))
+                        .maximum(Some(255)),
+                ),
+        )
+        .description(Some(
+            "Transaction message versions accepted: any of \"legacy\", 0, 1.\nDefault: all versions.",
+        ))
+        .into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ValidationConfig {
@@ -283,6 +307,11 @@ pub struct ValidationConfig {
     /// WARNING: Enabling with dynamic pricing creates price arbitrage risk.
     #[serde(default)]
     pub allow_durable_transactions: bool,
+    /// Transaction message versions accepted: any of "legacy", 0, 1.
+    /// Default: all versions.
+    #[serde(default = "default_allowed_transaction_versions")]
+    #[schema(schema_with = transaction_versions_schema)]
+    pub allowed_transaction_versions: Vec<TransactionVersion>,
     /// Maximum allowed age of oracle price data in slots. 0 = disabled (default).
     /// When >0, prices with a block_id older than `current_slot - max_price_staleness_slots` are rejected.
     #[serde(default)]
@@ -300,6 +329,10 @@ pub struct ValidationConfig {
     pub cross_cluster_check: bool,
     #[serde(default = "default_cross_cluster_endpoints")]
     pub cross_cluster_endpoints: Vec<String>,
+}
+
+pub(crate) fn default_allowed_transaction_versions() -> Vec<TransactionVersion> {
+    vec![TransactionVersion::LEGACY, TransactionVersion::Number(0), TransactionVersion::Number(1)]
 }
 
 fn default_cross_cluster_endpoints() -> Vec<String> {
@@ -374,11 +407,11 @@ pub struct SplTokenInstructionPolicy {
     pub allow_approve: bool,
     /// Allow fee payer to be the owner in SPL Token Revoke instructions
     pub allow_revoke: bool,
-    /// Allow fee payer to be the current authority in SPL Token SetAuthority instructions
+    /// Allow fee payer to be the current or the new authority in SPL Token SetAuthority instructions
     pub allow_set_authority: bool,
     /// Allow fee payer to be the mint authority in SPL Token MintTo/MintToChecked instructions
     pub allow_mint_to: bool,
-    /// Allow fee payer to be the mint authority in SPL Token InitializeMint/InitializeMint2 instructions
+    /// Allow fee payer to be the mint or freeze authority in SPL Token InitializeMint/InitializeMint2 instructions
     pub allow_initialize_mint: bool,
     /// Allow fee payer to be set as the owner in SPL Token InitializeAccount instructions
     pub allow_initialize_account: bool,
@@ -409,11 +442,11 @@ pub struct Token2022InstructionPolicy {
     pub allow_approve: bool,
     /// Allow fee payer to be the owner in Token2022 Revoke instructions
     pub allow_revoke: bool,
-    /// Allow fee payer to be the current authority in Token2022 SetAuthority instructions
+    /// Allow fee payer to be the current or the new authority in Token2022 SetAuthority instructions
     pub allow_set_authority: bool,
     /// Allow fee payer to be the mint authority in Token2022 MintTo/MintToChecked instructions
     pub allow_mint_to: bool,
-    /// Allow fee payer to be the mint authority in Token2022 InitializeMint/InitializeMint2 instructions
+    /// Allow fee payer to be the mint or freeze authority in Token2022 InitializeMint/InitializeMint2 instructions
     pub allow_initialize_mint: bool,
     /// Allow fee payer to be set as the owner in Token2022 InitializeAccount instructions
     pub allow_initialize_account: bool,
@@ -626,66 +659,29 @@ pub struct EnabledMethods {
 
 impl EnabledMethods {
     pub fn iter(&self) -> impl Iterator<Item = bool> {
-        [
-            self.liveness,
-            self.estimate_transaction_fee,
-            self.get_supported_tokens,
-            self.get_payer_signer,
-            self.sign_transaction,
-            self.sign_and_send_transaction,
-            self.transfer_transaction,
-            self.get_blockhash,
-            self.get_config,
-            self.get_version,
-            self.estimate_bundle_fee,
-            self.sign_and_send_bundle,
-            self.sign_bundle,
-        ]
-        .into_iter()
+        self.into_iter()
     }
 
     pub fn get_enabled_method_names(&self) -> Vec<String> {
-        let mut methods = Vec::new();
-        if self.liveness {
-            methods.push("liveness".to_string());
-        }
-        if self.estimate_transaction_fee {
-            methods.push("estimateTransactionFee".to_string());
-        }
-        if self.estimate_bundle_fee {
-            methods.push("estimateBundleFee".to_string());
-        }
-        if self.get_supported_tokens {
-            methods.push("getSupportedTokens".to_string());
-        }
-        if self.get_payer_signer {
-            methods.push("getPayerSigner".to_string());
-        }
-        if self.sign_transaction {
-            methods.push("signTransaction".to_string());
-        }
-        if self.sign_and_send_transaction {
-            methods.push("signAndSendTransaction".to_string());
-        }
-        if self.transfer_transaction {
-            methods.push("transferTransaction".to_string());
-        }
-        if self.get_blockhash {
-            methods.push("getBlockhash".to_string());
-        }
-        if self.get_config {
-            methods.push("getConfig".to_string());
-        }
-        if self.get_version {
-            methods.push("getVersion".to_string());
-        }
-        if self.sign_and_send_bundle {
-            methods.push("signAndSendBundle".to_string());
-        }
-        if self.sign_bundle {
-            methods.push("signBundle".to_string());
-        }
-        methods
+        [
+            (self.liveness, "liveness"),
+            (self.estimate_transaction_fee, "estimateTransactionFee"),
+            (self.estimate_bundle_fee, "estimateBundleFee"),
+            (self.get_supported_tokens, "getSupportedTokens"),
+            (self.get_payer_signer, "getPayerSigner"),
+            (self.sign_transaction, "signTransaction"),
+            (self.sign_and_send_transaction, "signAndSendTransaction"),
+            (self.transfer_transaction, "transferTransaction"),
+            (self.get_blockhash, "getBlockhash"),
+            (self.get_config, "getConfig"),
+            (self.get_version, "getVersion"),
+            (self.sign_and_send_bundle, "signAndSendBundle"),
+            (self.sign_bundle, "signBundle"),
+        ]
+        .into_iter()
+        .filter(|(enabled, _)| *enabled)
+        .map(|(_, name)| name.to_string())
+        .collect()
     }
 }
 
@@ -870,36 +866,18 @@ where
         Vec(Vec<String>),
     }
 
-    let opt = Option::<ApiKeys>::deserialize(deserializer)?;
-    match opt {
-        Some(ApiKeys::String(s)) => {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(vec![trimmed.to_string()]))
-            }
-        }
-        Some(ApiKeys::Vec(v)) => {
-            let filtered: Vec<String> = v
-                .into_iter()
-                .filter_map(|s| {
-                    let trimmed = s.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                })
-                .collect();
-            if filtered.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(filtered))
-            }
-        }
-        None => Ok(None),
-    }
+    let keys = match Option::<ApiKeys>::deserialize(deserializer)? {
+        Some(ApiKeys::String(key)) => vec![key],
+        Some(ApiKeys::Vec(keys)) => keys,
+        None => vec![],
+    };
+    let keys: Vec<String> = keys
+        .iter()
+        .map(|key| key.trim())
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+        .collect();
+    Ok((!keys.is_empty()).then_some(keys))
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -1208,6 +1186,67 @@ mod tests {
         let config = crate::tests::toml_mock::create_invalid_config(toml_content)
             .expect("TOML with allowed_programs = \"All\" should parse");
         assert_eq!(config.validation.allowed_programs, ProgramsConfig::All);
+    }
+
+    fn validation_toml_with(extra: &str) -> String {
+        format!(
+            r#"
+            [validation]
+            max_allowed_lamports = 1
+            max_signatures = 1
+            allowed_programs = []
+            allowed_tokens = []
+            allowed_spl_paid_tokens = []
+            disallowed_accounts = []
+            price_source = "Mock"
+            {extra}
+
+            [kora]
+            rate_limit = 1
+            "#
+        )
+    }
+
+    #[test]
+    fn test_allowed_transaction_versions_defaults_to_all() {
+        let config = crate::tests::toml_mock::create_invalid_config(&validation_toml_with(""))
+            .expect("TOML without allowed_transaction_versions should parse");
+        assert_eq!(
+            config.validation.allowed_transaction_versions,
+            vec![
+                TransactionVersion::LEGACY,
+                TransactionVersion::Number(0),
+                TransactionVersion::Number(1)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_allowed_transaction_versions_parses_mixed_array() {
+        let config = crate::tests::toml_mock::create_invalid_config(&validation_toml_with(
+            r#"allowed_transaction_versions = ["legacy", 1]"#,
+        ))
+        .expect("TOML with a mixed allowed_transaction_versions array should parse");
+        assert_eq!(
+            config.validation.allowed_transaction_versions,
+            vec![TransactionVersion::LEGACY, TransactionVersion::Number(1)]
+        );
+    }
+
+    #[test]
+    fn test_allowed_transaction_versions_rejects_non_version_values() {
+        for value in [r#"["0"]"#, r#"["v0"]"#, r#"["Legacy"]"#, "[256]", "[-1]"] {
+            let result = crate::tests::toml_mock::create_invalid_config(&validation_toml_with(
+                &format!("allowed_transaction_versions = {value}"),
+            ));
+            assert!(result.is_err(), "allowed_transaction_versions = {value} should not parse");
+        }
+    }
+
+    #[test]
+    fn test_transaction_version_json_serialization() {
+        let json = serde_json::to_string(&default_allowed_transaction_versions()).unwrap();
+        assert_eq!(json, r#"["legacy",0,1]"#);
     }
 
     #[test]
