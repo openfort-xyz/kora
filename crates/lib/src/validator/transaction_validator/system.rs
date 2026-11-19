@@ -3,6 +3,7 @@ use crate::{
     error::KoraError,
     transaction::{ParsedSystemInstructionData, ParsedSystemInstructionType},
 };
+use solana_sdk::pubkey::Pubkey;
 use std::collections::HashMap;
 
 impl TransactionValidator {
@@ -12,6 +13,7 @@ impl TransactionValidator {
             ParsedSystemInstructionType,
             Vec<ParsedSystemInstructionData>,
         >,
+        fee_payer_atas: &[Pubkey],
     ) -> Result<(), KoraError> {
         if !self.allow_durable_transactions
             && system_instructions
@@ -63,7 +65,9 @@ impl TransactionValidator {
         // owner check uses the SAME participation definition as the create gate above (payer, base,
         // or new_account): otherwise a foreign payer could prefund-create Kora's own account and
         // assign it to an untrusted owner, taking ownership of the sponsored account. See
-        // `validate_created_or_assigned_owner`.
+        // `validate_created_or_assigned_owner`. The CreateAccount the ATA program issues for an ATA
+        // the fee payer funds is gated by allow_create_ata instead (checked before this runs). Only
+        // the ATA program can create that PDA, so a top-level CreateAccount cannot match it.
         for instruction in system_instructions
             .get(&ParsedSystemInstructionType::SystemCreateAccount)
             .unwrap_or(&vec![])
@@ -79,7 +83,13 @@ impl TransactionValidator {
                 let fee_payer_participates = *payer == self.fee_payer_pubkey
                     || *base == Some(self.fee_payer_pubkey)
                     || *new_account == self.fee_payer_pubkey;
-                if fee_payer_participates && !self.fee_payer_policy.system.allow_create_account {
+                let is_fee_payer_ata_create = *payer == self.fee_payer_pubkey
+                    && base.is_none()
+                    && fee_payer_atas.contains(new_account);
+                if fee_payer_participates
+                    && !is_fee_payer_ata_create
+                    && !self.fee_payer_policy.system.allow_create_account
+                {
                     return Err(KoraError::InvalidTransaction(
                         "Fee payer cannot be used for 'System Create Account'".to_string(),
                     ));

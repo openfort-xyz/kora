@@ -366,10 +366,11 @@ impl TransactionValidator {
         config: &Config,
         transaction_resolved: &mut VersionedTransactionResolved,
     ) -> Result<(), KoraError> {
-        self.validate_ata_create_instructions(transaction_resolved)?;
+        let fee_payer_atas = self.validate_ata_create_instructions(transaction_resolved)?;
 
         self.validate_system_fee_payer_usage(
             transaction_resolved.get_or_parse_system_instructions()?,
+            &fee_payer_atas,
         )?;
         self.validate_spl_token_fee_payer_usage(
             transaction_resolved.get_or_parse_spl_instructions()?,
@@ -392,24 +393,22 @@ impl TransactionValidator {
     fn validate_ata_create_instructions(
         &self,
         transaction_resolved: &VersionedTransactionResolved,
-    ) -> Result<(), KoraError> {
-        if self.fee_payer_policy.system.allow_create_account {
-            return Ok(());
-        }
-
-        let has_fee_payer_ata_create = !TokenUtil::find_fee_payer_ata_creations(
+    ) -> Result<Vec<Pubkey>, KoraError> {
+        let fee_payer_atas: Vec<Pubkey> = TokenUtil::find_fee_payer_ata_creations(
             &transaction_resolved.all_instructions,
             &self.fee_payer_pubkey,
         )
-        .is_empty();
+        .into_iter()
+        .map(|info| info.ata_address)
+        .collect();
 
-        if has_fee_payer_ata_create {
+        if !fee_payer_atas.is_empty() && !self.fee_payer_policy.system.allow_create_ata() {
             return Err(KoraError::InvalidTransaction(
                 "Fee payer cannot fund ATA creation (Create or CreateIdempotent)".to_string(),
             ));
         }
 
-        Ok(())
+        Ok(fee_payer_atas)
     }
 
     async fn validate_transfer_amounts(

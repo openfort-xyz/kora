@@ -372,6 +372,12 @@ pub struct SystemInstructionPolicy {
     pub nonce: NonceInstructionPolicy,
 }
 
+impl SystemInstructionPolicy {
+    pub fn allow_create_ata(&self) -> bool {
+        self.allow_create_ata.unwrap_or(self.allow_create_account)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct NonceInstructionPolicy {

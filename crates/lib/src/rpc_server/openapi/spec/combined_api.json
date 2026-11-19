@@ -1759,6 +1759,7 @@
               "allow_allocate": false,
               "allow_assign": false,
               "allow_create_account": false,
+              "allow_create_ata": null,
               "allow_transfer": false,
               "nonce": {
                 "allow_advance": false,
@@ -2269,6 +2270,14 @@
             "type": "boolean",
             "description": "Allow fee payer to be the funder, the seeded base signer, or the account being created, in\nSystem CreateAccount/CreateAccountWithSeed/CreateAccountAllowPrefund instructions",
             "default": false
+          },
+          "allow_create_ata": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Allow fee payer to be the payer in ATA Create/CreateIdempotent instructions, including the\nSystem CreateAccount the ATA program issues for that ATA. Defaults to `allow_create_account`",
+            "default": null
           },
           "allow_transfer": {
             "type": "boolean",

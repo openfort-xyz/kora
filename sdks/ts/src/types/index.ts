@@ -380,6 +380,8 @@ export interface SystemInstructionPolicy {
     allow_assign: boolean;
     /** Allow fee payer to be the payer in System CreateAccount/CreateAccountWithSeed */
     allow_create_account: boolean;
+    /** Allow fee payer to fund ATA creation; null means it follows allow_create_account */
+    allow_create_ata?: boolean | null;
     /** Allow fee payer to be the sender in System Transfer/TransferWithSeed */
     allow_transfer: boolean;
     /** Nested policy for nonce account operations */

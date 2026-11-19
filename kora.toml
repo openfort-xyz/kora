@@ -98,6 +98,7 @@ disallowed_accounts = []
 allow_transfer = true           # Allow fee payer to be sender in System Transfer/TransferWithSeed
 allow_assign = true             # Allow fee payer to be authority in System Assign/AssignWithSeed
 allow_create_account = true     # Allow fee payer to be payer in System CreateAccount/CreateAccountWithSeed
+# allow_create_ata = true       # Allow fee payer to fund ATA creation; defaults to allow_create_account
 allow_allocate = true           # Allow fee payer to be account in System Allocate/AllocateWithSeed
 
 [validation.fee_payer_policy.system.nonce]
