@@ -527,6 +527,7 @@ impl FeePayerPolicyBuilder {
                     allow_transfer: false,
                     allow_assign: false,
                     allow_create_account: false,
+                    allow_create_ata: None,
                     allow_allocate: false,
                     nonce: NonceInstructionPolicy {
                         allow_initialize: false,

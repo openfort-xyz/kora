@@ -363,6 +363,9 @@ pub struct SystemInstructionPolicy {
     /// Allow fee payer to be the funder, the seeded base signer, or the account being created, in
     /// System CreateAccount/CreateAccountWithSeed/CreateAccountAllowPrefund instructions
     pub allow_create_account: bool,
+    /// Allow fee payer to be the payer in ATA Create/CreateIdempotent instructions, including the
+    /// System CreateAccount the ATA program issues for that ATA. Defaults to `allow_create_account`
+    pub allow_create_ata: Option<bool>,
     /// Allow fee payer to be the account in System Allocate/AllocateWithSeed instructions
     pub allow_allocate: bool,
     /// Nested policy for nonce account operations

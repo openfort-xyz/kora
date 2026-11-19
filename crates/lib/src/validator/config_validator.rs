@@ -1769,6 +1769,7 @@ mod tests {
                         allow_transfer: true,
                         allow_assign: true,
                         allow_create_account: true,
+                        allow_create_ata: None,
                         allow_allocate: true,
                         nonce: NonceInstructionPolicy {
                             allow_initialize: true,

@@ -3670,6 +3670,121 @@ mod tests {
         }
     }
 
+    fn setup_ata_only_create_policy() -> std::sync::Arc<RpcClient> {
+        let mut policy = FeePayerPolicy::default();
+        policy.system.allow_create_account = false;
+        policy.system.allow_create_ata = Some(true);
+        let config = ConfigMockBuilder::new()
+            .with_price_source(PriceSource::Mock)
+            .with_allowed_programs(vec![
+                SYSTEM_PROGRAM_ID.to_string(),
+                spl_associated_token_account_interface::program::id().to_string(),
+                spl_token_interface::id().to_string(),
+            ])
+            .with_max_allowed_lamports(10_000_000)
+            .with_fee_payer_policy(policy)
+            .build();
+        update_config(config).unwrap();
+        RpcMockBuilder::new()
+            .with_custom_mock(
+                solana_client::rpc_request::RpcRequest::GetMinimumBalanceForRentExemption,
+                serde_json::json!(2_039_280),
+            )
+            .build()
+    }
+
+    fn fee_payer_ata_create(fee_payer: &Pubkey) -> (Instruction, Instruction) {
+        let ata_ix =
+            spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent(
+                fee_payer,
+                &Pubkey::new_unique(),
+                &Pubkey::new_unique(),
+                &spl_token_interface::id(),
+            );
+        let ata_address = ata_ix.accounts[1].pubkey;
+        let inner_create = solana_system_interface::instruction::create_account(
+            fee_payer,
+            &ata_address,
+            2_039_280,
+            165,
+            &spl_token_interface::id(),
+        );
+        (ata_ix, inner_create)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_allow_create_ata_accepts_fee_payer_ata_and_its_inner_create() {
+        let fee_payer = Pubkey::new_unique();
+        let rpc_client = setup_ata_only_create_policy();
+        let config = get_config().unwrap();
+        let validator = TransactionValidator::new(config, fee_payer).unwrap();
+
+        let (ata_ix, inner_create) = fee_payer_ata_create(&fee_payer);
+        let message = VersionedMessage::Legacy(Message::new(&[ata_ix], Some(&fee_payer)));
+        let mut transaction =
+            TransactionUtil::new_unsigned_versioned_transaction_resolved(message).unwrap();
+        transaction.all_instructions.push(inner_create);
+
+        let result = validator.validate_transaction(config, &mut transaction, &rpc_client).await;
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_allow_create_ata_rejects_top_level_create_account() {
+        let fee_payer = Pubkey::new_unique();
+        let rpc_client = setup_ata_only_create_policy();
+        let config = get_config().unwrap();
+        let validator = TransactionValidator::new(config, fee_payer).unwrap();
+
+        let create = solana_system_interface::instruction::create_account(
+            &fee_payer,
+            &Pubkey::new_unique(),
+            5_000_000,
+            0,
+            &SYSTEM_PROGRAM_ID,
+        );
+        let message = VersionedMessage::Legacy(Message::new(&[create], Some(&fee_payer)));
+        let mut transaction =
+            TransactionUtil::new_unsigned_versioned_transaction_resolved(message).unwrap();
+
+        let err = validator
+            .validate_transaction(config, &mut transaction, &rpc_client)
+            .await
+            .expect_err("fee-payer-funded CreateAccount must be rejected");
+        assert!(err.to_string().contains("System Create Account"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_allow_create_ata_rejects_create_account_for_other_account_beside_ata() {
+        let fee_payer = Pubkey::new_unique();
+        let rpc_client = setup_ata_only_create_policy();
+        let config = get_config().unwrap();
+        let validator = TransactionValidator::new(config, fee_payer).unwrap();
+
+        let (ata_ix, inner_create) = fee_payer_ata_create(&fee_payer);
+        let other_create = solana_system_interface::instruction::create_account(
+            &fee_payer,
+            &Pubkey::new_unique(),
+            2_039_280,
+            165,
+            &spl_token_interface::id(),
+        );
+        let message =
+            VersionedMessage::Legacy(Message::new(&[ata_ix, other_create], Some(&fee_payer)));
+        let mut transaction =
+            TransactionUtil::new_unsigned_versioned_transaction_resolved(message).unwrap();
+        transaction.all_instructions.push(inner_create);
+
+        let err = validator
+            .validate_transaction(config, &mut transaction, &rpc_client)
+            .await
+            .expect_err("CreateAccount for a non-ATA address must be rejected");
+        assert!(err.to_string().contains("System Create Account"), "unexpected error: {err}");
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_ata_create_idempotent_charged_in_outflow_without_inner_create() {
